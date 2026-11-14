@@ -751,19 +751,21 @@ jobs:
             if [ -f "$bundle" ]; then echo "SSL_CERT_FILE=$bundle" >> "$GITHUB_ENV"; exit 0; fi
           done
           echo "::error::No CA bundle found in Git for Windows"; exit 1
-      - name: Install lavapipe from mesa-dist-win
+      - name: Install the Vulkan loader and lavapipe
         run: |
+          curl -sSfL -o "$RUNNER_TEMP/vulkanrt.exe" "https://sdk.lunarg.com/sdk/download/1.4.304.0/windows/VulkanRT-1.4.304.0-Installer.exe"
+          "$RUNNER_TEMP/vulkanrt.exe" /S
+          sleep 5
+          test -f /c/Windows/System32/vulkan-1.dll || { echo "::error::VulkanRT did not install the loader"; exit 1; }
           curl -sSfL -o "$RUNNER_TEMP/mesa.7z" "https://github.com/pal1000/mesa-dist-win/releases/download/26.2.6/mesa3d-26.2.6-release-msvc.7z"
           7z x "$RUNNER_TEMP/mesa.7z" -o"$RUNNER_TEMP/mesa" > /dev/null
           json=$(find "$RUNNER_TEMP/mesa" -iname '*lvp*.json' | head -1)
-          dll=$(find "$RUNNER_TEMP/mesa" -iname 'vulkan-1.dll' | head -1)
-          if [ -z "$json" ] || [ -z "$dll" ]; then
+          if [ -z "$json" ]; then
             find "$RUNNER_TEMP/mesa" -maxdepth 2 | head -60
-            echo "::error::mesa-dist-win did not contain an lavapipe ICD json or a vulkan-1.dll"
+            echo "::error::mesa-dist-win did not contain an lavapipe ICD json"
             exit 1
           fi
           echo "VK_DRIVER_FILES=$(cygpath -w "$json")" >> "$GITHUB_ENV"
-          echo "$(cygpath -w "$(dirname "$dll")")" >> "$GITHUB_PATH"
           echo "lavapipe json: $json"
       - id: toolchain
         uses: actions/cache@v6
