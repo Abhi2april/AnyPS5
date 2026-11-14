@@ -762,6 +762,7 @@ jobs:
             exit 1
           fi
           echo "VK_DRIVER_FILES=$(cygpath -w "$json")" >> "$GITHUB_ENV"
+          echo "VK_ICD_FILENAMES=$(cygpath -w "$json")" >> "$GITHUB_ENV"
           echo "Dozen json: $json"
       - id: toolchain
         uses: actions/cache@v6
