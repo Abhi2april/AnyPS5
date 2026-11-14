@@ -947,3 +947,5 @@ jobs:
       - run: cmake -S core/libs/tests/edge_watch -B build/edge-watch -DCMAKE_BUILD_TYPE=Release
       - run: cmake --build build/edge-watch --parallel
       - run: ctest --test-dir build/edge-watch --output-on-failure --repeat until-fail:3 --no-tests=error
+
+# trial branch: enables the workflow list on the fork
