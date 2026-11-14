@@ -751,18 +751,8 @@ jobs:
             if [ -f "$bundle" ]; then echo "SSL_CERT_FILE=$bundle" >> "$GITHUB_ENV"; exit 0; fi
           done
           echo "::error::No CA bundle found in Git for Windows"; exit 1
-      - name: Install the Vulkan loader and lavapipe
+      - name: Install lavapipe
         run: |
-          curl -sSfL --max-time 300 --retry 3 --retry-delay 5 -o "$RUNNER_TEMP/vulkanrt.exe" "https://sdk.lunarg.com/sdk/download/1.4.304.0/windows/VulkanRT-1.4.304.0-Installer.exe"
-          # the NSIS installer hangs on a headless session; unpack the loader out of it instead of running it
-          7z x "$RUNNER_TEMP/vulkanrt.exe" -o"$RUNNER_TEMP/vulkanrt" > /dev/null || { find "$RUNNER_TEMP/vulkanrt" -maxdepth 2 2>/dev/null | head -40; echo "::error::could not unpack the VulkanRT installer"; exit 1; }
-          dll=$(find "$RUNNER_TEMP/vulkanrt" -iname 'vulkan-1.dll' | head -1)
-          if [ -z "$dll" ]; then
-            find "$RUNNER_TEMP/vulkanrt" | head -40
-            echo "::error::no vulkan-1.dll in the unpacked installer"
-            exit 1
-          fi
-          echo "$(cygpath -w "$(dirname "$dll")")" >> "$GITHUB_PATH"
           curl -sSfL --max-time 300 --retry 3 --retry-delay 5 -o "$RUNNER_TEMP/mesa.7z" "https://github.com/pal1000/mesa-dist-win/releases/download/26.2.6/mesa3d-26.2.6-release-msvc.7z"
           7z x "$RUNNER_TEMP/mesa.7z" -o"$RUNNER_TEMP/mesa" 'x64/*' > /dev/null
           json=$(find "$RUNNER_TEMP/mesa" -iname '*lvp*.json' | head -1)
@@ -772,7 +762,7 @@ jobs:
             exit 1
           fi
           echo "VK_DRIVER_FILES=$(cygpath -w "$json")" >> "$GITHUB_ENV"
-          echo "loader: $dll"; echo "lavapipe json: $json"
+          echo "lavapipe json: $json"
       - id: toolchain
         uses: actions/cache@v6
         with:
@@ -784,6 +774,20 @@ jobs:
           echo "$WINLIBS_SHA256  $RUNNER_TEMP/winlibs.zip" | sha256sum -c -
           7z x "$RUNNER_TEMP/winlibs.zip" -oC:/winlibs > /dev/null
       - run: echo 'C:\winlibs\mingw64\bin' >> "$GITHUB_PATH"
+      - name: Build the Vulkan loader
+        run: |
+          if [ -f /c/Windows/System32/vulkan-1.dll ]; then echo "runner already has the loader"; exit 0; fi
+          git clone --depth 1 --branch v1.4.304 --recurse-submodules --shallow-submodules https://github.com/KhronosGroup/Vulkan-Loader.git "$RUNNER_TEMP/vulkan-loader"
+          cmake -S "$RUNNER_TEMP/vulkan-loader" -B "$RUNNER_TEMP/vulkan-loader/build" -G Ninja -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTS=OFF -DBUILD_LOADER=ON -DCMAKE_C_COMPILER=gcc -DCMAKE_CXX_COMPILER=g++
+          cmake --build "$RUNNER_TEMP/vulkan-loader/build" --target vulkan
+          dll=$(find "$RUNNER_TEMP/vulkan-loader/build" -iname 'vulkan-1.dll' | head -1)
+          if [ -z "$dll" ]; then
+            find "$RUNNER_TEMP/vulkan-loader/build" -iname '*.dll' | head -10
+            echo "::error::the loader build produced no vulkan-1.dll"
+            exit 1
+          fi
+          echo "$(cygpath -w "$(dirname "$dll")")" >> "$GITHUB_PATH"
+          echo "loader: $dll"
       - uses: hendrikmuhs/ccache-action@v1.2.24
         with:
           key: ${{ github.event_name == 'workflow_dispatch' && 'dispatch-windows' || 'windows' }}
