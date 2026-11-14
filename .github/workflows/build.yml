@@ -753,12 +753,20 @@ jobs:
           echo "::error::No CA bundle found in Git for Windows"; exit 1
       - name: Install the Vulkan loader and lavapipe
         run: |
-          curl -sSfL -o "$RUNNER_TEMP/vulkanrt.exe" "https://sdk.lunarg.com/sdk/download/1.4.304.0/windows/VulkanRT-1.4.304.0-Installer.exe"
+          set -x
+          date -u
+          curl -sSfL --max-time 420 --retry 3 --retry-delay 5 -o "$RUNNER_TEMP/vulkanrt.exe" "https://sdk.lunarg.com/sdk/download/1.4.304.0/windows/VulkanRT-1.4.304.0-Installer.exe"
+          date -u; ls -l "$RUNNER_TEMP/vulkanrt.exe"
           "$RUNNER_TEMP/vulkanrt.exe" /S
-          sleep 5
+          echo "VulkanRT installer exit: $?"
+          date -u
+          for i in $(seq 1 12); do test -f /c/Windows/System32/vulkan-1.dll && break; sleep 5; done
           test -f /c/Windows/System32/vulkan-1.dll || { echo "::error::VulkanRT did not install the loader"; exit 1; }
-          curl -sSfL -o "$RUNNER_TEMP/mesa.7z" "https://github.com/pal1000/mesa-dist-win/releases/download/26.2.6/mesa3d-26.2.6-release-msvc.7z"
+          date -u
+          curl -sSfL --max-time 600 --retry 3 --retry-delay 5 -o "$RUNNER_TEMP/mesa.7z" "https://github.com/pal1000/mesa-dist-win/releases/download/26.2.6/mesa3d-26.2.6-release-msvc.7z"
+          date -u; ls -l "$RUNNER_TEMP/mesa.7z"
           7z x "$RUNNER_TEMP/mesa.7z" -o"$RUNNER_TEMP/mesa" > /dev/null
+          date -u
           json=$(find "$RUNNER_TEMP/mesa" -iname '*lvp*.json' | head -1)
           if [ -z "$json" ]; then
             find "$RUNNER_TEMP/mesa" -maxdepth 2 | head -60
