@@ -792,7 +792,7 @@ jobs:
         with:
           key: ${{ github.event_name == 'workflow_dispatch' && 'dispatch-windows' || 'windows' }}
           restore-keys: ${{ github.event_name == 'workflow_dispatch' && 'windows' || '' }}
-          save: ${{ github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch') }}
+          save: true
           evict-old-files: job
       - id: ffmpeg-cache
         uses: actions/cache/restore@v6
@@ -844,7 +844,7 @@ jobs:
       - id: build
         if: github.event_name != 'pull_request'
         shell: cmd
-        run: if exist build\select.ninja (ninja -C build -f select.ninja selected) else (cmake --build build)
+        run: cmake --build build --target libs video_out_dialog_input_tests video_out_flip_tests video_out_frame_dump_queue_tests video_out_hdr_present_tests video_out_hdr_probe_tests video_out_host_fullscreen_tests video_out_mouse_tests video_out_output_mode_policy_tests video_out_port0_presence_tests video_out_telemetry_tests guest_video_out_color_space_tests guest_video_out_current_output_mode_tests guest_video_out_device_capability_tests guest_video_out_event_id_tests guest_video_out_firmware_answers_tests guest_video_out_flip_rate_tests guest_video_out_hdr_tests guest_video_out_high_frame_rate_tests guest_video_out_host_resolution_limit_tests guest_video_out_output_mode_checks_tests guest_video_out_output_mode_tests guest_video_out_resolution_status_tests guest_video_out_set_mode_event_tests guest_video_out_vblank_status_tests guest_video_out_wqhd_detection_tests
       - name: List changed files for host-only test linking
         if: github.event_name == 'pull_request'
         env:
