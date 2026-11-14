@@ -843,8 +843,11 @@ jobs:
           python tools/select_tests.py select build test-graph.json changed.txt
       - id: build
         if: github.event_name != 'pull_request'
-        shell: cmd
-        run: cmake --build build --target libs video_out_dialog_input_tests video_out_flip_tests video_out_frame_dump_queue_tests video_out_hdr_present_tests video_out_hdr_probe_tests video_out_host_fullscreen_tests video_out_mouse_tests video_out_output_mode_policy_tests video_out_port0_presence_tests video_out_telemetry_tests guest_video_out_color_space_tests guest_video_out_current_output_mode_tests guest_video_out_device_capability_tests guest_video_out_event_id_tests guest_video_out_firmware_answers_tests guest_video_out_flip_rate_tests guest_video_out_hdr_tests guest_video_out_high_frame_rate_tests guest_video_out_host_resolution_limit_tests guest_video_out_output_mode_checks_tests guest_video_out_output_mode_tests guest_video_out_resolution_status_tests guest_video_out_set_mode_event_tests guest_video_out_vblank_status_tests guest_video_out_wqhd_detection_tests
+        shell: bash
+        run: |
+          targets=$(ninja -C build -t targets | awk -F: '/video_out/ { gsub(/\.exe$/, "", $1); if ($1 ~ /^[A-Za-z_0-9]+$/) print $1 }' | sort -u)
+          echo "building targets: $targets"
+          cmake --build build --target libs $targets
       - name: List changed files for host-only test linking
         if: github.event_name == 'pull_request'
         env:
