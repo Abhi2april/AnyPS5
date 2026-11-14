@@ -871,6 +871,7 @@ jobs:
         env:
           ANYPS5_REQUIRE_VULKAN: 1
           ANYPS5_NO_SHADER_CACHE: 1
+          VK_LOADER_DEBUG: icd
       - if: github.event_name != 'pull_request'
         run: python tools/check_skips.py build/ctest.xml --job windows
       - name: Write the test graph of main
