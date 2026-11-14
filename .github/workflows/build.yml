@@ -753,28 +753,26 @@ jobs:
           echo "::error::No CA bundle found in Git for Windows"; exit 1
       - name: Install the Vulkan loader and lavapipe
         run: |
-          set -x
-          date -u
-          curl -sSfL --max-time 420 --retry 3 --retry-delay 5 -o "$RUNNER_TEMP/vulkanrt.exe" "https://sdk.lunarg.com/sdk/download/1.4.304.0/windows/VulkanRT-1.4.304.0-Installer.exe"
-          date -u; ls -l "$RUNNER_TEMP/vulkanrt.exe"
-          "$RUNNER_TEMP/vulkanrt.exe" /S
-          echo "VulkanRT installer exit: $?"
-          date -u
-          for i in $(seq 1 12); do test -f /c/Windows/System32/vulkan-1.dll && break; sleep 5; done
-          test -f /c/Windows/System32/vulkan-1.dll || { echo "::error::VulkanRT did not install the loader"; exit 1; }
-          date -u
-          curl -sSfL --max-time 600 --retry 3 --retry-delay 5 -o "$RUNNER_TEMP/mesa.7z" "https://github.com/pal1000/mesa-dist-win/releases/download/26.2.6/mesa3d-26.2.6-release-msvc.7z"
-          date -u; ls -l "$RUNNER_TEMP/mesa.7z"
-          7z x "$RUNNER_TEMP/mesa.7z" -o"$RUNNER_TEMP/mesa" > /dev/null
-          date -u
+          curl -sSfL --max-time 300 --retry 3 --retry-delay 5 -o "$RUNNER_TEMP/vulkanrt.exe" "https://sdk.lunarg.com/sdk/download/1.4.304.0/windows/VulkanRT-1.4.304.0-Installer.exe"
+          # the NSIS installer hangs on a headless session; unpack the loader out of it instead of running it
+          7z x "$RUNNER_TEMP/vulkanrt.exe" -o"$RUNNER_TEMP/vulkanrt" > /dev/null || { find "$RUNNER_TEMP/vulkanrt" -maxdepth 2 2>/dev/null | head -40; echo "::error::could not unpack the VulkanRT installer"; exit 1; }
+          dll=$(find "$RUNNER_TEMP/vulkanrt" -iname 'vulkan-1.dll' | head -1)
+          if [ -z "$dll" ]; then
+            find "$RUNNER_TEMP/vulkanrt" | head -40
+            echo "::error::no vulkan-1.dll in the unpacked installer"
+            exit 1
+          fi
+          echo "$(cygpath -w "$(dirname "$dll")")" >> "$GITHUB_PATH"
+          curl -sSfL --max-time 300 --retry 3 --retry-delay 5 -o "$RUNNER_TEMP/mesa.7z" "https://github.com/pal1000/mesa-dist-win/releases/download/26.2.6/mesa3d-26.2.6-release-msvc.7z"
+          7z x "$RUNNER_TEMP/mesa.7z" -o"$RUNNER_TEMP/mesa" 'x64/*' > /dev/null
           json=$(find "$RUNNER_TEMP/mesa" -iname '*lvp*.json' | head -1)
           if [ -z "$json" ]; then
-            find "$RUNNER_TEMP/mesa" -maxdepth 2 | head -60
+            find "$RUNNER_TEMP/mesa" -maxdepth 2 | head -40
             echo "::error::mesa-dist-win did not contain an lavapipe ICD json"
             exit 1
           fi
           echo "VK_DRIVER_FILES=$(cygpath -w "$json")" >> "$GITHUB_ENV"
-          echo "lavapipe json: $json"
+          echo "loader: $dll"; echo "lavapipe json: $json"
       - id: toolchain
         uses: actions/cache@v6
         with:
