@@ -879,6 +879,14 @@ jobs:
           VK_LOADER_DEBUG: icd
       - if: github.event_name != 'pull_request'
         run: python tools/check_skips.py build/ctest.xml --job windows
+      - if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v5
+        with:
+          name: ctest-windows
+          path: |
+            build/ctest.xml
+            ctest.log
+          if-no-files-found: ignore
       - name: Write the test graph of main
         if: ${{ !cancelled() && github.event_name == 'push' && steps.build.outcome == 'success' && steps.libs.outcome == 'success' }}
         continue-on-error: true
