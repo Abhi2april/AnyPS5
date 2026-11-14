@@ -763,6 +763,9 @@ jobs:
           fi
           echo "VK_DRIVER_FILES=$(cygpath -w "$json")" >> "$GITHUB_ENV"
           echo "VK_ICD_FILENAMES=$(cygpath -w "$json")" >> "$GITHUB_ENV"
+          # the loader demonstrably reads this registry key; register the ICD there as well
+          reg add "HKLM\\SOFTWARE\\Khronos\\Vulkan\\Drivers" /v "$(cygpath -w "$json")" /t REG_DWORD /d 0 /f
+          reg query "HKLM\\SOFTWARE\\Khronos\\Vulkan\\Drivers"
           echo "Dozen json: $json"
       - id: toolchain
         uses: actions/cache@v6
