@@ -732,7 +732,7 @@ jobs:
     needs: eligibility
     if: ${{ ((github.event_name == 'push' || github.event_name == 'workflow_dispatch') && needs.eligibility.outputs.full == 'true') || (github.event_name == 'pull_request' && needs.eligibility.outputs.mingw-host-tests == 'true') }}
     runs-on: windows-latest
-    timeout-minutes: 90
+    timeout-minutes: 240
     env:
       WINLIBS_RELEASE: 15.2.0posix-14.0.0-ucrt-r7
       WINLIBS_ZIP: winlibs-x86_64-posix-seh-gcc-15.2.0-mingw-w64ucrt-14.0.0-r7.zip
@@ -800,6 +800,23 @@ jobs:
             if [ -f "$bundle" ]; then echo "SSL_CERT_FILE=$bundle" >> "$GITHUB_ENV"; exit 0; fi
           done
           echo "::error::No CA bundle found in Git for Windows"; exit 1
+      - name: Install lavapipe
+        run: |
+          curl -sSfL --max-time 300 --retry 3 --retry-delay 5 -o "$RUNNER_TEMP/mesa.7z" "https://github.com/pal1000/mesa-dist-win/releases/download/26.2.6/mesa3d-26.2.6-release-msvc.7z"
+          7z x "$RUNNER_TEMP/mesa.7z" -o"$RUNNER_TEMP/mesa" 'x64/*' > /dev/null
+          json=$(find "$RUNNER_TEMP/mesa" -iname '*lvp*.json' | head -1)
+          if [ -z "$json" ]; then
+            find "$RUNNER_TEMP/mesa" -maxdepth 2 | head -40
+            echo "::error::mesa-dist-win did not contain a lavapipe ICD json"
+            exit 1
+          fi
+          echo "VK_DRIVER_FILES=$(cygpath -w "$json")" >> "$GITHUB_ENV"
+          echo "VK_ICD_FILENAMES=$(cygpath -w "$json")" >> "$GITHUB_ENV"
+          # the loader demonstrably reads this registry key; register the ICD there as well
+          regkey='HKLM:\SOFTWARE\Khronos\Vulkan\Drivers'
+          powershell -NoProfile -Command "New-Item -Path '$regkey' -Force | Out-Null; New-ItemProperty -Path '$regkey' -Name '$(cygpath -w "$json")' -PropertyType DWord -Value 0 -Force | Out-Null"
+          powershell -NoProfile -Command "(Get-ItemProperty -Path '$regkey').PSObject.Properties.Name"
+          echo "Dozen json: $json"
       - id: toolchain
         uses: actions/cache@v6
         with:
@@ -811,11 +828,25 @@ jobs:
           echo "$WINLIBS_SHA256  $RUNNER_TEMP/winlibs.zip" | sha256sum -c -
           7z x "$RUNNER_TEMP/winlibs.zip" -oC:/winlibs > /dev/null
       - run: echo 'C:\winlibs\mingw64\bin' >> "$GITHUB_PATH"
+      - name: Build the Vulkan loader
+        run: |
+          if [ -f /c/Windows/System32/vulkan-1.dll ]; then echo "runner already has the loader"; exit 0; fi
+          git clone --depth 1 --branch v1.4.304 --recurse-submodules --shallow-submodules https://github.com/KhronosGroup/Vulkan-Loader.git "$RUNNER_TEMP/vulkan-loader"
+          cmake -S "$RUNNER_TEMP/vulkan-loader" -B "$RUNNER_TEMP/vulkan-loader/build" -G Ninja -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTS=OFF -DBUILD_LOADER=ON -DCMAKE_C_COMPILER=gcc -DCMAKE_CXX_COMPILER=g++
+          cmake --build "$RUNNER_TEMP/vulkan-loader/build" --target vulkan
+          dll=$(find "$RUNNER_TEMP/vulkan-loader/build" -iname 'vulkan-1.dll' | head -1)
+          if [ -z "$dll" ]; then
+            find "$RUNNER_TEMP/vulkan-loader/build" -iname '*.dll' | head -10
+            echo "::error::the loader build produced no vulkan-1.dll"
+            exit 1
+          fi
+          echo "$(cygpath -w "$(dirname "$dll")")" >> "$GITHUB_PATH"
+          echo "loader: $dll"
       - uses: hendrikmuhs/ccache-action@v1.2.24
         with:
           key: ${{ github.event_name == 'workflow_dispatch' && 'dispatch-windows' || 'windows' }}
           restore-keys: ${{ github.event_name == 'workflow_dispatch' && 'windows' || '' }}
-          save: ${{ github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch') }}
+          save: true
           evict-old-files: job
       - id: ffmpeg-cache
         uses: actions/cache/restore@v6
@@ -831,7 +862,7 @@ jobs:
         shell: bash
         run: mkdir -p build/.cmake/api/v1/query && touch build/.cmake/api/v1/query/codemodel-v2
       - shell: cmd
-        run: if exist configure-seed.cmake (cmake -C configure-seed.cmake -S . -B build %CONFIGURE% "-DANYPS5_AGC_EXECUTION_TESTS=F16ToF32Unpack;F64FmaSubnormals;RegistrationPrepareShutdown") else (cmake -S . -B build %CONFIGURE% "-DANYPS5_AGC_EXECUTION_TESTS=F16ToF32Unpack;F64FmaSubnormals;RegistrationPrepareShutdown")
+        run: if exist configure-seed.cmake (cmake -C configure-seed.cmake -S . -B build %CONFIGURE% "-DANYPS5_VIDEO_OUT_TEST_DRIVER=windows" "-DANYPS5_AGC_EXECUTION_TESTS=F16ToF32Unpack;F64FmaSubnormals;RegistrationPrepareShutdown") else (cmake -S . -B build %CONFIGURE% "-DANYPS5_VIDEO_OUT_TEST_DRIVER=windows" "-DANYPS5_AGC_EXECUTION_TESTS=F16ToF32Unpack;F64FmaSubnormals;RegistrationPrepareShutdown")
       - if: steps.seed-cache.outputs.cache-hit != 'true'
         shell: cmd
         run: python tools/configure_seed.py build/CMakeCache.txt configure-seed.cmake
@@ -866,8 +897,11 @@ jobs:
           python tools/select_tests.py select build test-graph.json changed.txt
       - id: build
         if: github.event_name != 'pull_request'
-        shell: cmd
-        run: if exist build\select.ninja (ninja -C build -f select.ninja selected) else (cmake --build build)
+        shell: bash
+        run: |
+          targets=$(ninja -C build -t targets | awk -F: '/video_out/ { gsub(/\.exe$/, "", $1); if ($1 ~ /^[A-Za-z_0-9]+$/) print $1 }' | sort -u)
+          echo "building targets: $targets"
+          cmake --build build --target libs $targets
       - name: List changed files for host-only test linking
         if: github.event_name == 'pull_request'
         env:
@@ -887,9 +921,21 @@ jobs:
         run: cmake --build build --target libs
       - if: github.event_name != 'pull_request'
         shell: cmd
-        run: python tools/select_tests.py ctest build --output-on-failure --timeout 120 --parallel 4 --output-log ctest.log --output-junit ctest.xml
+        run: ctest --test-dir build -R video_out -V --output-on-failure --timeout 120 --parallel 4 --output-log ctest.log --output-junit ctest.xml
+        env:
+          ANYPS5_REQUIRE_VULKAN: 1
+          ANYPS5_NO_SHADER_CACHE: 1
+          VK_LOADER_DEBUG: icd
       - if: github.event_name != 'pull_request'
         run: python tools/check_skips.py build/ctest.xml --job windows
+      - if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v5
+        with:
+          name: ctest-windows
+          path: |
+            build/ctest.xml
+            ctest.log
+          if-no-files-found: ignore
       - name: Write the test graph of main
         if: ${{ !cancelled() && github.event_name == 'push' && steps.build.outcome == 'success' && steps.libs.outcome == 'success' }}
         continue-on-error: true
